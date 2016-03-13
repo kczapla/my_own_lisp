@@ -30,28 +30,112 @@ void add_history(char* unused) {}
 #endif
 
 
-long eval_op(long x, char* op, long y)
+// Enum for lval possible values
+enum {LVAL_ERR, LVAL_NUM, LVAL_SYM, LVAL_SEXPR};
+
+// Enum for possible error types
+enum {LERR_DIV_ZERO, LERR_BAD_OP, LERR_BAD_NUM};
+
+
+// Values structure
+typedef struct lval
 {
-  if (strcmp(op, "+") == 0) { return x + y; }
-  else if (strcmp(op, "-") == 0) { return x - y; }
-  else if (strcmp(op, "*") == 0) { return x * y; }
-  else  if (strcmp(op, "/") == 0) { return x / y; }
-  return 0;
+  int type;
+  long num;
+  char* err;
+  char* sym;
+  // Count and pointer to a lost of "lval"
+  int count;
+  struct lval** cell;
+} lval;
+
+
+// Contruct a pointer to a new Number lval
+lval lval_num(long x)
+{
+  lval* v =
+    
+  v.type = LVAL_NUM;
+  v.num = x;
+  return v;
+}
+
+// Creates a new error type lval
+lval lval_err(int x)
+{
+  lval v;
+  v.type = LVAL_ERR;
+  v.err = x;
+  return v;
+}
+
+// Print lval
+void lval_print(lval v)
+{
+  switch (v.type)
+  {
+    // In the case the type is number
+    case LVAL_NUM: printf("%li", v.num); break;
+
+    // In the case the type is error
+    case LVAL_ERR:
+      // Check the type of error
+      if (v.err == LERR_DIV_ZERO)
+      {
+	printf("Error: Division by zero!");
+      }
+      else if (v.err == LERR_BAD_OP)
+      {
+	printf("Error: Invalid operator!");
+      }
+      else if (v.err == LERR_BAD_NUM)
+      {
+	printf("Error: Invalid Number!");
+      }
+      break;
+  }
 }
 
 
-long eval(mpc_ast_t* t)
+void lval_println(lval v)
+{
+  lval_print(v);
+  putchar('\n');
+}
+	  
+      
+
+
+lval eval_op(lval x, char* op, lval y)
+{
+  if (x.type == LVAL_ERR) { return x; }
+  else if (y.type == LVAL_ERR) { return y; }
+
+  if (strcmp(op, "+") == 0) { return lval_num(x.num + y.num); }
+  else if (strcmp(op, "-") == 0) { return lval_num(x.num - y.num); }
+  else if (strcmp(op, "*") == 0) { return lval_num(x.num * y.num); }
+  else  if (strcmp(op, "/") == 0)
+  {
+    return y.num == 0 ? lval_err(LERR_DIV_ZERO) : lval_num(x.num / y.num);
+  }
+  return lval_err(LERR_BAD_OP);
+}
+
+
+lval eval(mpc_ast_t* t)
 {
   // If tagged as number return it directly
   if (strstr(t->tag, "number"))
   {
-    return atoi(t->contents);
+    errno = 0;
+    long x = strtol(t->contents, NULL, 10);
+    return errno != ERANGE ? lval_num(x) : lval_err(LERR_BAD_NUM);
   }
   // The operator is always second child
   char* op = t->children[1]->contents;
 
   // Third child of node
-  long x = eval(t->children[2]);
+  lval x = eval(t->children[2]);
 
   // Iterate the remaining children and combining
   int i = 3;
@@ -69,7 +153,8 @@ int main(int argc, char** argv)
 {
   // Parsers
   mpc_parser_t* Number = mpc_new("number");
-  mpc_parser_t* Operator = mpc_new("operator");
+  mpc_parser_t* Symbol = mpc_new("symbol");
+  mpc_parser_t* Sexpr = mpc_new("sexpr");
   mpc_parser_t* Expr = mpc_new("expr");
   mpc_parser_t* Lispy = mpc_new("lispy");
 
@@ -77,12 +162,11 @@ int main(int argc, char** argv)
   mpca_lang(MPCA_LANG_DEFAULT,
 	    "\
               number : /-?[0-9]+/; \
-              operator : '+' | '-' | '*' | '/' | '%' | \
-                         \"add\" | \"sub\" | \"mul\" | \"div\"; \
+              symbol : '+' | '-' | '*' | '/' ; \
               expr : <number> |  '(' <operator> <expr>+ ')'; \
               lispy : /^/<operator> <expr>+/$/; \
             ",
-	    Number, Operator, Expr, Lispy);
+	    Number, Symbol, Sexpr, Expr, Lispy);
   /* Print Version and Exit Infromation */
   puts("Lisp Version 0.0.0.0.1");
   puts("Press Ctrl+c to exit\n");
@@ -98,9 +182,8 @@ int main(int argc, char** argv)
     mpc_result_t r;
     if (mpc_parse("<stdin>", input, Lispy, &r))
     {
-      long result = eval(r.output);
-      printf("%li\n", result);
-      mpc_ast_print(r.output);
+      lval result = eval(r.output);
+      lval_println(result);
       mpc_ast_delete(r.output);
     }
     else
@@ -112,6 +195,6 @@ int main(int argc, char** argv)
     // Free input
     free(input);
   }
-  mpc_cleanup(4, Number, Operator, Expr, Lispy);
+  mpc_cleanup(5, Number, Operator, Sexpr, Expr, Lispy);
   return 0;
 }
