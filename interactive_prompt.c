@@ -264,6 +264,7 @@ lval* builtin_head(lval* a)
 }
 
 lval* builtin_tail(lval* a)
+//  Function returns qexpr without first element
 {
   LASSERT(a, a->count == 1,
 	  "Function 'tail' passed too many arguments!");
@@ -273,9 +274,25 @@ lval* builtin_tail(lval* a)
 	  "Function 'tail' passed {}!");
 
   lval* v = lval_take(a, 0);
-  while (v->count > 1) { lval_del(lval_pop(v, 1)); }
+  lval_del(lval_pop(v, 0));
   return v;
 }
+
+lval* builtin_init(lval* a)
+//  Function returns qexpr without first element
+{
+  LASSERT(a, a->count == 1,
+	  "Function 'init' passed too many arguments!");
+  LASSERT(a, a->cell[0]->type == LVAL_QEXPR,
+	  "Function 'init' passed incorrect type!");
+  LASSERT(a, a->cell[0]->count != 0,
+	  "Function 'init' passed {}!");
+
+  lval* v = lval_take(a, 0);
+  lval_del(lval_pop(v, v->count - 1));
+  return v;
+}
+
 
 lval* builtin_list(lval* a)
 {
@@ -316,6 +333,7 @@ lval* builtin_join(lval* a)
 lval* builtin(lval* a, char* func)
 {
   if (strcmp("list", func) == 0) { return builtin_list(a); }
+  if (strcmp("init", func) == 0) { return builtin_init(a); }
   if (strcmp("head", func) == 0) { return builtin_head(a); }
   if (strcmp("tail", func) == 0) { return builtin_tail(a); }
   if (strcmp("join", func) == 0) { return builtin_join(a); }
@@ -421,7 +439,7 @@ int main(int argc, char** argv)
 	    "                                                   \
               number : /-?[0-9]+/;	                        \
               symbol : \"list\" | \"head\" | \"tail\"           \
-                       | \"join\" | \"eval\"                    \
+                       | \"join\" | \"eval\" | \"init\"         \
                        |'+' | '-' | '*' | '/' ;			\
               sexpr  : '(' <expr>* ')';                         \
               qexpr  : '{' <expr>* '}';                         \
@@ -444,7 +462,7 @@ int main(int argc, char** argv)
     mpc_result_t r;
     if (mpc_parse("<stdin>", input, Lispy, &r))
     {
-      //      mpc_ast_print(r.output);
+      mpc_ast_print(r.output);
       lval* result = lval_eval(lval_read(r.output));
       lval_println(result);
       lval_del(result);
@@ -462,4 +480,3 @@ int main(int argc, char** argv)
   mpc_cleanup(6, Number, Symbol, Sexpr, Qexpr, Expr, Lispy);
   return 0;
 }
-
