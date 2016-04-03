@@ -144,6 +144,16 @@ lval* lval_add(lval* v, lval* x)
   return v;
 }
 
+lval* lval_add_front(lval* v, lval* x)
+{
+  // Number of elements before realloc
+  int cells_no = v->count;
+  v->count++;
+  v->cell = realloc(v->cell, sizeof(lval*) * v->count);
+  memmove(&v->cell[1], &v->cell[0], sizeof(lval*) * cells_no);
+  v->cell[0] = x;
+  return v;
+}
 
 lval* lval_read(mpc_ast_t* t)
 {
@@ -308,6 +318,26 @@ lval* builtin_len(lval* a)
   return x;
 }
 
+lval* builtin_cons(lval* a)
+//  Function returns qexpr without first element
+{
+  LASSERT(a, a->count == 2,
+	  "Function 'cons' passed too many arguments!");
+  LASSERT(a, a->cell[0]->type == LVAL_QEXPR,
+	  "Function 'cons' passed incorrect type! First arg must be qexpr");
+  LASSERT(a, a->cell[1]->type == LVAL_NUM,
+	  "Function 'cons' passed incorrect type! Second arg must be number");
+  LASSERT(a, a->cell[0]->count != 0,
+	  "Function 'cons' passed {}!");
+
+  lval* v = lval_pop(a, 0);
+  lval* x = lval_pop(a, 0);
+  lval_add_front(v, x);
+  return v;
+}
+
+
+
 lval* builtin_list(lval* a)
 {
   a->type = LVAL_QEXPR;
@@ -349,6 +379,7 @@ lval* builtin(lval* a, char* func)
   if (strcmp("list", func) == 0) { return builtin_list(a); }
   if (strcmp("init", func) == 0) { return builtin_init(a); }
   if (strcmp("len", func) == 0) { return builtin_len(a); }
+  if (strcmp("cons", func) == 0) { return builtin_cons(a); }
   if (strcmp("head", func) == 0) { return builtin_head(a); }
   if (strcmp("tail", func) == 0) { return builtin_tail(a); }
   if (strcmp("join", func) == 0) { return builtin_join(a); }
@@ -375,7 +406,7 @@ lval* lval_pop(lval* v, int i)
   lval* x = v->cell[i];
 
   // Shift memory after the item at "i" over the top
-  memmove(&v->cell[i], &v->cell[i+1], sizeof(lval*) * (v->count-i-1));
+   memmove(&v->cell[i], &v->cell[i+1], sizeof(lval*) * (v->count-i-1));
   // Decrease the count of items in the list
   v->count--;
 
@@ -455,7 +486,7 @@ int main(int argc, char** argv)
               number : /-?[0-9]+/;	                        \
               symbol : \"list\" | \"head\" | \"tail\"           \
                        | \"join\" | \"eval\" | \"init\"         \
-                       | \"len\"                                \
+                       | \"len\" | \"cons\"                     \
                        |'+' | '-' | '*' | '/' ;			\
               sexpr  : '(' <expr>* ')';                         \
               qexpr  : '{' <expr>* '}';                         \
