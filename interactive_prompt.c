@@ -61,27 +61,31 @@ struct lval;
 struct lenv;
 typedef struct lval lval;
 typedef struct lenv lenv;
-
-
-// Enum for lval possible values
-enum {LVAL_ERR, LVAL_NUM, LVAL_SYM, LVAL_SEXPR, LVAL_QEXPR, LVAL_FUN };
-
 // Lbuiltin is pointer to the function wich args are pointers to lenv and lval
 // and returns pointer to lval
 typedef lval*(*lbuiltin)(lenv*, lval*);
 
+// Enum for lval possible values
+enum {LVAL_ERR, LVAL_NUM, LVAL_SYM, LVAL_SEXPR, LVAL_QEXPR, LVAL_FUN };
+
 // Values structure
 struct lval
 {
+  // Basic
   int type;
-
   long num;
   char* err;
   char* sym;
-  lbuiltin fun;
-  // Count and pointer to a lost of "lval"
+
+  // Functions
+  lbuiltin builtin;
+  lenv* env;
+  lval* formals;
+  lval* body;
+  
+  // Expression
   int count;
-  struct lval** cell;
+  lval** cell;
 };
 
 struct lenv
@@ -106,6 +110,7 @@ lval* builtin_sub(lenv* e, lval* a);
 lval* builtin_tail(lenv* e, lval* a);
 
 lval* lval_copy(lval* v);
+lval* lval_lambda(lval* formals, lval* body);
 lval* lval_err(char *fmt, ...);
 lval* lval_eval(lenv* e, lval* v);
 lval* lval_eval_sexpr(lenv* e, lval* v);
@@ -117,6 +122,8 @@ lval* lval_take(lval* v, int i);
 void lval_del(lval* v);
 void lval_expr_print(lval* v, char open, char close);
 void lval_print(lval* v);
+
+lenv* lenv_copy(lenv* e);
 
 char* ltype_name(int t);
 
@@ -218,12 +225,27 @@ lval* lval_num(long x)
   return v;
 }
 
+lval* lval_lambda(lval* formals, lval* body)
+{
+  lval* v = malloc(sizeof(lval));
+  v->type = LVAL_FUN;
+
+  // Set builtin to null
+  v->builtin = NULL;
+  // Build new enviroment
+  v->env = lenv_new();
+  // Set formals and body
+  v->formals = formals;
+  v->body = body;
+  return v;
+}
+ 
 // make a new func
 lval* lval_fun(lbuiltin func)
 {
   lval* v = malloc(sizeof(lval));
   v->type = LVAL_FUN;
-  v->fun = func;
+  v->builtin = func;
   return v;
 }
 
@@ -284,9 +306,15 @@ void lval_del(lval* v)
     case LVAL_NUM: break;
     case LVAL_ERR: free(v->err); break;
     case LVAL_SYM: free(v->sym); break;
-    case LVAL_FUN: break;
-
-      // If Qexpr or Sexpr then delete all elements inside
+    case LVAL_FUN:
+      if (!v->builtin)
+	{
+	  lenv_del(v->env);
+	  lval_del(v->formals);
+	  lval_del(v->body);
+	}
+      break;
+    // If Qexpr or Sexpr then delete all elements inside
     case LVAL_QEXPR:  
     case LVAL_SEXPR:
       for (int i = 0; i < v->count; i++)
@@ -357,7 +385,17 @@ void lval_print(lval* v)
   switch (v->type)
     {
     case LVAL_NUM: printf("%li", v->num); break;
-    case LVAL_FUN: printf("<function>"); break;
+    case LVAL_FUN:
+      if (v->builtin) { printf("<builtin>"); break; }
+      else
+	{
+	  printf("(\\ ");
+	  lval_print(v->formals);
+	  putchar(' ');
+	  lval_print(v->body);
+	  putchar(')');
+	}
+      break;
     case LVAL_ERR: printf("Error: %s", v->err); break;
     case LVAL_SYM: printf("%s", v->sym); break;
     case LVAL_SEXPR: lval_expr_print(v, '(', ')'); break;
@@ -372,7 +410,16 @@ lval* lval_copy(lval* v)
   switch (v->type)
     {
     case LVAL_NUM: x->num = v->num; break;
-    case LVAL_FUN: x->fun = v->fun; break;
+    case LVAL_FUN:
+      if (v->builtin) { x->builtin = v->builtin; break; }
+      else
+	{
+	  x->builtin = NULL;
+	  x->env = lenv_copy(v->env);
+	  x->formals = lval_copy(v->formals);
+	  x->body = lval_copy(v->body);
+	}
+      break;
     case LVAL_ERR:
       x->err = malloc(strlen(v->err) + 1);
       strcpy(x->err, v->err); break;
@@ -413,6 +460,26 @@ void lval_expr_print(lval* v, char open, char close)
   putchar(close);
 }
 
+lval* builtin_lambda(lenv* e, lval* a)
+{
+  LASSERT_NUM("\\", a, 2);
+  LASSERT_TYPE("\\", a, 0, LVAL_QEXPR);
+  LASSERT_TYPE("\\", a, 1, LVAL_QEXPR);
+
+  /* Check first Q-Expression contains only Symbols */
+  for (int i = 0; i < a->cell[0]->count; i++)
+    {
+    LASSERT(a, (a->cell[0]->cell[i]->type == LVAL_SYM),
+      "Cannot define non-symbol. Got %s, Expected %s.",
+      ltype_name(a->cell[0]->cell[i]->type), ltype_name(LVAL_SYM));
+    }
+
+  lval* formals = lval_pop(a, 0);
+  lval* body = lval_pop(a, 1);
+  lval_del(a);
+
+  return lval_lambda(formals, body);
+}
 
 lval* builtin_op(lenv* e, lval* a, char* op)
 {
@@ -680,7 +747,7 @@ lval* lval_eval_sexpr(lenv* e, lval* v)
     }
 
   // Call built-in with operator
-  lval* result = f->fun(e, v);
+  lval* result = f->builtin(e, v);
   lval_del(f);
   return result;
 }
