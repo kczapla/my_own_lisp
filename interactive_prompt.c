@@ -11,6 +11,24 @@
       return err;						\
     }
 
+#define LASSERT_NUM(func, args, num)					\
+  LASSERT(args, args->count == num,					\
+	  "Function '%s' passed too many arguments. \ "			\
+	  "Got %i, Excpected %i.",					\
+	  func, args->count, num);					\
+
+#define LASSERT_TYPE(func, args, index, expect)				\
+  LASSERT(args, args->cell[index]->type == expect,			\
+	  "Function '%s' passed incorrect type.\ "			\
+	  "Got %s, Exptected %s",					\
+	  func, ltype_name(args->cell[index]->type),			\
+	  ltype_name(expect));						\
+
+#define LASSERT_NOT_EMPTY(func, args, index)			\
+  LASSERT(args, args->cell[index]->count != 0,			\
+	  "Function '%s' passed empty args!",			\
+	  func);						\
+
 
 #ifdef _WIN32
 #include <string.h>
@@ -491,16 +509,9 @@ lval* builtin_def(lenv* e, lval* a)
 
 lval* builtin_head(lenv* e, lval* a)
 {
-  LASSERT(a, a->count == 1,
-	  "Function 'head' passed too many arguments. "
-	  "Got %i, Excpected %i.",
-	  a->count, 1);
-  LASSERT(a, a->cell[0]->type == LVAL_QEXPR,
-	  "Function 'head' passed incorrect type. "
-	  "Got %s, Exptected %s",
-	  ltype_name(a->cell[0]->type), ltype_name(LVAL_QEXPR));
-  LASSERT(a, a->cell[0]->count != 0,
-	  "Function 'head' passed {}!");
+  LASSERT_NUM("head", a, 1);
+  LASSERT_TYPE("head", a, 0, LVAL_QEXPR);
+  LASSERT_NOT_EMPTY("head", a, 0);
 
   lval* v = lval_take(a, 0);
   while (v->count > 1) { lval_del(lval_pop(v, 1)); }
