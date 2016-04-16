@@ -414,7 +414,8 @@ lval* lval_call (lenv* e, lval* f, lval* a)
 
   while (a->count)
     {
-      // Report error when to much args were passed to func 
+      // When count of formals will be zero and loop still active
+      // that means that too much args were passed to the func
       if (f->formals->count == 0)
         {
           lval_del(a);
@@ -423,6 +424,26 @@ lval* lval_call (lenv* e, lval* f, lval* a)
         }
       // Pop func args symbols from formals 
       lval* sym = lval_pop(f->formals, 0);
+      
+      if (strcmp(sym->sym, "&") == 0)
+        {
+          // ensure that & is fallowed by another symbol
+          // that n args will be bounded too eg. pythons *x
+          // that bounds all values into one list represented by x value
+          if (f->formals->count != 1)
+            {
+              lval_del(a);
+              return lval_err("Function format invalid. "
+                              "Symbol '&' not fallowed by a single symbol.");
+            }
+          // Next format should be bound to remaining arguments
+          lval* nsym = lval_pop(f->formals, 0);
+          lenv_put(f->env, nsym, builtin_list(e, a));
+          lval_del(sym);
+          lval_del(nsym);
+          break;
+        }
+      
       // Pop next arguments from the func
       lval* val = lval_pop(a, 0);
       // bind this values to the function env
@@ -435,6 +456,24 @@ lval* lval_call (lenv* e, lval* f, lval* a)
     }
   // Args are bounded to formals
   lval_del(a);
+
+  if (f->formals->count > 0 && strcmp(f->formals->cell[0]->sym, "&") == 0)
+    {
+      if (f->formals->count != 2)
+        {
+          return lval_err("Function format invalid. "
+                          "Symbol '&' not followed by single symbol.");
+        }
+      // Pop and delete '&' symbol
+      lval_del(lval_pop(f->formals, 0));
+      // Pop next symbol 'name that represents the list of func args'
+      lval* sym = lval_pop(f->formals, 0);
+      lval* val = lval_qexpr();
+      // Bind to enviroment and delete;
+      lenv_put(f->env, sym, val);
+      lval_del(sym);
+      lval_del(val);
+    }
   // if all formals have been bound evaluate them
   if (f->formals->count == 0)
     {
@@ -640,35 +679,6 @@ lval* builtin_div(lenv* e, lval* a)
 {
     return builtin_op(e, a, "/");
 }
-
-/* lval* builtin_def(lenv* e, lval* a) */
-/* { */
-/*   LASSERT_TYPE("def", a, 0, LVAL_QEXPR); */
-
-/*   // First argument is symbol list */
-/*   lval* syms = a->cell[0]; */
-
-/*   // Ensure all elements of first list are symbols */
-/*   for (int i = 0; i < syms->count; i++) */
-/*     { */
-/*       LASSERT_TYPE("def", syms, i, LVAL_SYM); */
-/*     } */
-
-/*   // a->cell[0] => { x y z } */
-/*   // a->cell[>0] => { 1 2 3 4 }, 1, { 1 2}, ... */
-/*   LASSERT(a, syms->count == a->count-1,  */
-/*             "Function def cannot define incorrect " */
-/*             "number of values symbols!"); */
-
-/*     // Assign copies of values to symbols */
-/*     for (int i = 0; i < syms->count; i++) */
-/*     { */
-/*         lenv_put(e, syms->cell[i], a->cell[i+1]); */
-/*     } */
-
-/*     lval_del(a); */
-/*     return lval_sexpr(); */
-/* } */
 
 lval* builtin_def(lenv* e, lval* a)
 {
