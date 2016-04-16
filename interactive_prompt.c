@@ -80,7 +80,9 @@ struct lval
   // Functions
   lbuiltin builtin;
   lenv* env;
+  // Symbols of the varibale ex. 'x=...'
   lval* formals;
+  // Lines of code that will be executed in order when func is called
   lval* body;
   
   // Expression
@@ -97,6 +99,7 @@ struct lenv
 };
 
 lval* builtin_add(lenv* e, lval* a);
+lval* builtin_lambda(lenv* e, lval* a);
 lval* builtin_cons(lenv* e, lval* a);
 lval* builtin_def(lenv* e, lval* a);
 lval* builtin_div(lenv* e, lval* a);
@@ -246,6 +249,7 @@ void lenv_add_builtins(lenv* e)
 
     // Add variables
     lenv_add_builtin(e, "def", builtin_def);
+    lenv_add_builtin(e, "\\", builtin_lambda);
     lenv_add_builtin(e, "=", builtin_put);
                         
     // Mathematical funcions
@@ -256,7 +260,7 @@ void lenv_add_builtins(lenv* e)
 }
     
 
-// Contruct a pointer to a new Number lval
+// CONTRUCT a pointer to a new Number lval
 lval* lval_num(long x)
 {
   lval* v = malloc(sizeof(lval));
@@ -265,6 +269,8 @@ lval* lval_num(long x)
   return v;
 }
 
+// Function makes default user function
+// Formals are arugments of this function and body is body of it
 lval* lval_lambda(lval* formals, lval* body)
 {
   lval* v = malloc(sizeof(lval));
@@ -395,6 +401,56 @@ lval* lval_add_front(lval* v, lval* x)
   return v;
 }
 
+lval* lval_call (lenv* e, lval* f, lval* a)
+{
+  // a is list of passed arguments
+  // if builtin the apply this builtin
+  if (f->builtin) { return f->builtin(e, a); }
+
+  // check how many arguments passed to the function
+  // and how many arguments can be passed
+  int given = a->count;
+  int total = f->formals->count;
+
+  while (a->count)
+    {
+      // Report error when to much args were passed to func 
+      if (f->formals->count == 0)
+        {
+          lval_del(a);
+          return lval_err("Function passed to many arguments. "
+                          "Got %i, Expected %i.", given, total);
+        }
+      // Pop func args symbols from formals 
+      lval* sym = lval_pop(f->formals, 0);
+      // Pop next arguments from the func
+      lval* val = lval_pop(a, 0);
+      // bind this values to the function env
+      // Old values of sybmols are replaced by new ones (passed as
+      // args to func)
+      lenv_put(f->env, sym, val);
+      // Delete symbol and value
+      lval_del(sym);
+      lval_del(val);
+    }
+  // Args are bounded to formals
+  lval_del(a);
+  // if all formals have been bound evaluate them
+  if (f->formals->count == 0)
+    {
+      // Set enviroment parent to evaluation enviroment
+      f->env->par = e;
+      // Eval and return
+      return builtin_eval(f->env,
+                          lval_add(lval_sexpr(), lval_copy(f->body)));
+    }
+  else
+    {
+      // return partialy evaluated func
+      return lval_copy(f);
+    }
+}
+
 lval* lval_read(mpc_ast_t* t)
 {
   // If symbol or number return conversion to that type
@@ -515,7 +571,7 @@ lval* builtin_lambda(lenv* e, lval* a)
     }
 
   lval* formals = lval_pop(a, 0);
-  lval* body = lval_pop(a, 1);
+  lval* body = lval_pop(a, 0);
   lval_del(a);
 
   return lval_lambda(formals, body);
@@ -829,13 +885,16 @@ lval* lval_eval_sexpr(lenv* e, lval* v)
   lval * f = lval_pop(v, 0);
   if (f->type != LVAL_FUN)
     {
+      lval* err = lval_err("S-expression starts with incorrct type. "
+                           "Got %s, Expected %s",
+                           ltype_name(f->type), ltype_name(LVAL_FUN));
       lval_del(f);
       lval_del(v);
-      return lval_err("first element is not a function!");
+      return err;
     }
 
   // Call built-in with operator
-  lval* result = f->builtin(e, v);
+  lval* result = lval_call(e, f, v);
   lval_del(f);
   return result;
 }
