@@ -121,6 +121,7 @@ lval* builtin_ord(lenv* e, lval* a, char* op);
 lval* builtin_put(lenv* e, lval* a);
 lval* builtin_sub(lenv* e, lval* a);
 lval* builtin_tail(lenv* e, lval* a);
+lval* builtin_if(lenv* e, lval* a);
 lval* builtin_var(lenv* e, lval* a, char* func);
 
 lval* lval_copy(lval* v);
@@ -260,7 +261,16 @@ void lenv_add_builtins(lenv* e)
     lenv_add_builtin(e, "def", builtin_def);
     lenv_add_builtin(e, "\\", builtin_lambda);
     lenv_add_builtin(e, "=", builtin_put);
-                        
+
+    // Comparision functions
+    lenv_add_builtin(e, "if", builtin_if);
+    lenv_add_builtin(e, "==", builtin_eq);
+    lenv_add_builtin(e, "!=", builtin_ne);
+    lenv_add_builtin(e, ">", builtin_gt);
+    lenv_add_builtin(e, "<", builtin_lt);
+    lenv_add_builtin(e, ">=", builtin_ge);
+    lenv_add_builtin(e, "<=", builtin_le);
+
     // Mathematical funcions
     lenv_add_builtin(e, "+", builtin_add);
     lenv_add_builtin(e, "-", builtin_sub);
@@ -674,6 +684,34 @@ lval* builtin_lambda(lenv* e, lval* a)
 
   return lval_lambda(formals, body);
 }
+
+lval* builtin_if(lenv* e, lval* a)
+{
+  LASSERT_NUM("if", a, 3);
+  LASSERT_TYPE("if", a, 0, LVAL_NUM);
+  LASSERT_TYPE("if", a, 1, LVAL_QEXPR);
+  LASSERT_TYPE("if", a, 2, LVAL_QEXPR);
+
+  // Mark both expressions evaluable
+  lval *x;
+  a->cell[1]->type = LVAL_SEXPR;
+  a->cell[2]->type = LVAL_SEXPR;
+
+  if (a->cell[0]->num)
+    {
+      // if condition is true evaluate first expression
+      x = lval_eval(e, lval_pop(a, 1)); 
+    }
+  else
+    {
+      x = lval_eval(e, lval_pop(a, 2)); 
+    }
+
+  // Delete argument list and return
+  lval_del(a);
+  return x;
+}
+
 
 lval* builtin_op(lenv* e, lval* a, char* op)
 {
