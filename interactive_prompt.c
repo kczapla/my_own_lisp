@@ -66,7 +66,7 @@ typedef struct lenv lenv;
 typedef lval*(*lbuiltin)(lenv*, lval*);
 
 // Enum for lval possible values
-enum {LVAL_ERR, LVAL_NUM, LVAL_SYM, LVAL_SEXPR, LVAL_QEXPR, LVAL_FUN };
+enum {LVAL_NUM, LVAL_ERR, LVAL_BOOL, LVAL_SYM, LVAL_SEXPR, LVAL_QEXPR, LVAL_FUN };
 
 // Values structure
 struct lval
@@ -141,6 +141,7 @@ lval* lval_join(lval* x, lval* y);
 lval* lval_lambda(lval* formals, lval* body);
 lval* lval_pop(lval* v, int i);
 lval* lval_sym(char* s);
+lval* lval_boolean(long x, char* s);
 lval* lval_take(lval* v, int i);
 int lval_eq(lval* x, lval* y);
 void lval_del(lval* v);
@@ -320,6 +321,16 @@ lval* lval_lambda(lval* formals, lval* body)
   v->body = body;
   return v;
 }
+
+lval* lval_boolean(long x, char* s)
+{
+  lval* v = malloc(sizeof(lval));
+  v->type = LVAL_BOOL;
+  v->num = x;
+  v->sym = malloc(strlen(s) + 1);
+  strcpy(v->sym, s);
+  return v;
+}
  
 // make a new func
 lval* lval_fun(lbuiltin func)
@@ -386,6 +397,7 @@ void lval_del(lval* v)
     {
     case LVAL_NUM: break;
     case LVAL_ERR: free(v->err); break;
+    case LVAL_BOOL:
     case LVAL_SYM: free(v->sym); break;
     case LVAL_FUN:
       if (!v->builtin)
@@ -416,6 +428,22 @@ lval* lval_read_num(mpc_ast_t* t)
   return errno != ERANGE ? lval_num(x) : lval_err("invalid number");
 }
 
+lval* lval_read_boolean(char* s)
+{
+  if (strcmp(s, "True") == 0)
+    {
+      return lval_boolean(1, s);
+    }
+  else if (strcmp(s, "False") == 0)
+    {
+      return lval_boolean(0, s);
+    }
+  else
+    {
+      return lval_err("invalid booleanean value");
+    }
+}
+
 int lval_eq(lval* x, lval* y)
 {
   // Different types are always unequal
@@ -428,6 +456,7 @@ int lval_eq(lval* x, lval* y)
   switch (x->type)
     {
       //compare no value
+    case LVAL_BOOL:
     case LVAL_NUM: return (x->num == y->num);
       
     // compare string value
@@ -579,6 +608,7 @@ lval* lval_read(mpc_ast_t* t)
 {
   // If symbol or number return conversion to that type
   if (strstr(t->tag, "number")) { return lval_read_num(t); }
+  if (strstr(t->tag, "boolean")) { return lval_read_boolean(t->contents); }
   if (strstr(t->tag, "symbol")) { return lval_sym(t->contents); }
 
   // If root (>) or sexpr then create empty list
@@ -617,6 +647,7 @@ void lval_print(lval* v)
         }
       break;
     case LVAL_ERR: printf("Error: %s", v->err); break;
+    case LVAL_BOOL:
     case LVAL_SYM: printf("%s", v->sym); break;
     case LVAL_SEXPR: lval_expr_print(v, '(', ')'); break;
     case LVAL_QEXPR: lval_expr_print(v, '{', '}'); break;
@@ -646,6 +677,11 @@ lval* lval_copy(lval* v)
     case LVAL_SYM:
       x->sym = malloc(strlen(v->sym) + 1);
       strcpy(x->sym, v->sym); break;
+    case LVAL_BOOL:
+      x->num = v->num; 
+      x->sym = malloc(strlen(v->sym) + 1);
+      strcpy(x->sym, v->sym);
+      break;
     case LVAL_SEXPR: 
     case LVAL_QEXPR:
       x->count = v->count;
@@ -734,7 +770,7 @@ lval* builtin_op(lenv* e, lval* a, char* op)
   // Ensure all arguments are number
   for (int i = 0; i < a->count; i++)
     {
-      if (a->cell[i]->type != LVAL_NUM)
+      if (a->cell[i]->type != LVAL_NUM && a->cell[i]->type != LVAL_BOOL)
         {
           lval_del(a);
           return lval_err("Cannot operate on non-number");
@@ -743,6 +779,10 @@ lval* builtin_op(lenv* e, lval* a, char* op)
 
   // Pop the first element
   lval* x = lval_pop(a, 0);
+  if (x->type == LVAL_BOOL)
+    {
+      x->type = LVAL_NUM;
+    }
 
   // If no arguments and sub then perform unary negation
   if ((strcmp(op, "-") == 0) && a->count == 0)
@@ -920,7 +960,11 @@ lval* builtin_ord(lenv* e, lval* a, char* op)
 {
   LASSERT_NUM(op, a, 2);
   LASSERT_TYPE(op, a, 0, LVAL_NUM);
-  LASSERT_TYPE(op, a, 1, LVAL_NUM);
+  LASSERT(a, a->cell[1]->type == LVAL_NUM || a->cell[1]->type == LVAL_BOOL,                     
+          "Function '%s' passed incorrect type. "                       
+          "Got %s, Exptected %s or %s",
+          op, ltype_name(a->cell[1]->type),                    
+          ltype_name(LVAL_BOOL), ltype_name(LVAL_NUM));                                          
 
   int r = 1000000000;
   if (strcmp(op, ">") == 0)
@@ -1171,6 +1215,7 @@ char* ltype_name(int t)
     {
     case LVAL_FUN: return "Function";
     case LVAL_NUM: return "Number";
+    case LVAL_BOOL: return "Boolean";
     case LVAL_ERR: return "Error";
     case LVAL_SYM: return "Symbol";
     case LVAL_SEXPR: return "S-Expression";
@@ -1180,11 +1225,11 @@ char* ltype_name(int t)
 }
       
 
-
 int main(int argc, char** argv)
 {
   // Parsers
   mpc_parser_t* Number = mpc_new("number");
+  mpc_parser_t* Boolean = mpc_new("boolean");
   mpc_parser_t* Symbol = mpc_new("symbol");
   mpc_parser_t* Sexpr = mpc_new("sexpr");
   mpc_parser_t* Qexpr = mpc_new("qexpr");
@@ -1195,13 +1240,14 @@ int main(int argc, char** argv)
   mpca_lang(MPCA_LANG_DEFAULT,
             "                                                   \
               number : /-?[0-9]+/;                              \
+              boolean : /True|False/;                           \
               symbol: /[a-zA-Z0-9_+\\-*\\/\\\\=<>!&]+/;         \
               sexpr  : '(' <expr>* ')';                         \
               qexpr  : '{' <expr>* '}';                         \
-              expr   : <number> | <symbol> | <sexpr> | <qexpr> ;\
+              expr   : <number>  | <boolean> | <symbol> | <sexpr> | <qexpr>;\
               lispy  : /^/ <expr>* /$/;                         \
             ",
-            Number, Symbol, Sexpr, Qexpr, Expr, Lispy);
+            Number, Boolean, Symbol, Sexpr, Qexpr, Expr, Lispy);
   /* Print Version and Exit Infromation */
   puts("Lisp Version 0.0.0.0.1");
   puts("Press Ctrl+c to exit\n");
