@@ -1332,7 +1332,7 @@ lval* lval_eval_sexpr(lenv* e, lval* v)
   // Single Expression
   if (v->count == 1) { return lval_take(v, 0); }
 
-  // Ensure first element is a symbol
+  // Ensure first element is a fun
   lval * f = lval_pop(v, 0);
   if (f->type != LVAL_FUN)
     {
