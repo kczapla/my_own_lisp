@@ -1,10 +1,11 @@
 CC=clang
 CFLAGS=-c -Wall
+LIBS=-ledit
 
 all: prompt
 
 prompt: lispy.o mpc.o
-	$(CC) -ledit lispy.o mpc.o -o prompt
+	$(CC) $(LIBS) lispy.o mpc.o -o prompt
 
 lispy.o: lispy.c
 	$(CC) $(CFLAGS) lispy.c
