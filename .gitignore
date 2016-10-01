@@ -2,4 +2,5 @@
 !*.c
 !*.lspy
 !*.h
+!makefile
 !README.md
